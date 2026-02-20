@@ -2979,7 +2979,7 @@ async function renderDailyOpsPDF(dateObj, blocks, log, mission, fatigueIdx, pdfT
       const sx = pdf.M + i * (sbw + 8);
       const bg = dark ? [0.08, 0.08, 0.10] : [0.95, 0.95, 0.95];
       pdf.rect(sx, sy - 30, sbw, 30, bg, dark ? [0.18,0.18,0.24] : [0.85,0.85,0.85], 0.5);
-      pdf.smartText(s.name, sx + 4, sy - 8, { size: 7, bold: true, mono: true, color: tx, maxWidth: sbw - 8 });
+      pdf.smartText(s.name, cx + 4, cy - 10, { size: 6, bold: true, mono: false, color: tx, maxWidth: cardW - 12 });
       pdf.text(`${s.hours.toFixed(1)}h / ${s.tests}T`, sx + 4, sy - 22, { size: 6, mono: true, color: dim });
     });
     sy -= 42;
@@ -3210,7 +3210,7 @@ async function renderFullAnalyticalPDF() {
       const cy = sy - row * 48;
       const bg = dark ? [0.08, 0.08, 0.10] : [0.95, 0.95, 0.95];
       pdf.rect(cx, cy - 40, cardW, 40, bg, dark ? [0.18,0.18,0.24] : [0.85,0.85,0.85], 0.5);
-      pdf.smartText(s.name, cx + 4, cy - 8, { size: 7.5, bold: true, mono: true, color: tx, maxWidth: cardW - 8 });
+      pdf.smartText(s.name, sx + 4, sy - 10, { size: 6, bold: true, mono: false, color: tx, maxWidth: sbw - 12 });
       pdf.text(`${s.hours.toFixed(1)}h | ${s.tests}T | ${s.efficiency.toFixed(1)}/hr`, cx + 4, cy - 22, { size: 6, mono: true, color: dim });
       pdf.text(s.dominance.toFixed(0) + '%', cx + cardW - 6, cy - 8, { size: 9, mono: true, bold: true, color: ac, align: 'right' });
       // Dominance bar
@@ -3497,39 +3497,59 @@ class VectorPDF {
     const color = opts.color || [0.1, 0.1, 0.1];
     const bold = opts.bold || false;
 
-    // Render on offscreen canvas at 3x for quality
-    const scale = 3;
+    const scale = 4;
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const fontSize = size * scale;
-    ctx.font = `${bold ? 'bold ' : ''}${fontSize}px 'Segoe UI', 'Tahoma', 'Arial', sans-serif`;
+    const fontStr = `${bold ? 'bold ' : ''}${fontSize}px 'Segoe UI', 'Tahoma', 'Arial', sans-serif`;
+    ctx.font = fontStr;
     const measured = ctx.measureText(str);
-    const cw = Math.min(Math.ceil(measured.width) + 4, maxW * scale);
-    const ch = Math.ceil(fontSize * 1.4);
+    const textW = Math.ceil(measured.width);
+    const cw = Math.min(textW + 8, maxW * scale);
+    const ch = Math.ceil(fontSize * 1.5);
     canvas.width = cw;
     canvas.height = ch;
 
-    // Transparent background
     ctx.clearRect(0, 0, cw, ch);
-    ctx.font = `${bold ? 'bold ' : ''}${fontSize}px 'Segoe UI', 'Tahoma', 'Arial', sans-serif`;
+    ctx.font = fontStr;
     ctx.fillStyle = `rgb(${Math.round(color[0]*255)},${Math.round(color[1]*255)},${Math.round(color[2]*255)})`;
-    ctx.textAlign = opts.align === 'center' ? 'center' : opts.align === 'right' ? 'right' : 'left';
-    ctx.textBaseline = 'top';
-    const textX = opts.align === 'center' ? cw / 2 : opts.align === 'right' ? cw - 2 : 2;
-    ctx.fillText(str, textX, 2);
+    ctx.textBaseline = 'middle';
+    ctx.direction = 'rtl';
+    ctx.textAlign = 'right';
+    ctx.fillText(str, cw - 4, ch / 2);
 
-    // Convert to PNG data
     const dataUrl = canvas.toDataURL('image/png');
     const pdfW = cw / scale;
     const pdfH = ch / scale;
-    const imgIdx = this.pg.images.length;
-    this.pg.images.push({ dataUrl, x, y: y - pdfH + size * 0.3, w: pdfW, h: pdfH });
+
+    // Clamp to maxWidth — scale down if too wide
+    let finalW = pdfW;
+    let finalH = pdfH;
+    if (finalW > maxW) {
+      const ratio = maxW / finalW;
+      finalW = maxW;
+      finalH = pdfH * ratio;
+    }
+
+    // Clamp height to not exceed ~1.5x font size in PDF points
+    const maxH = size * 1.8;
+    if (finalH > maxH) {
+      const ratio = maxH / finalH;
+      finalH = maxH;
+      finalW = finalW * ratio;
+    }
+
+    // Position: align baseline with surrounding text
+    const yPos = y - finalH + size * 0.25;
+
+    this.pg.images.push({ dataUrl, x, y: yPos, w: finalW, h: finalH });
     return this;
   }
 
   // Smart text — auto-detects Persian vs Latin
   smartText(str, x, y, opts = {}) {
     if (!str) return this;
+    // If string contains ANY Persian/Arabic characters, render entire string as image
     if (/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(str)) {
       return this.persianText(str, x, y, opts);
     }
@@ -3708,7 +3728,7 @@ class VectorPDF {
       const ry = y - cellH - (si + 1) * cellH;
       // Label cell
       this.rect(x, ry, col0W, cellH, dark ? [0.08, 0.08, 0.10] : [0.94, 0.94, 0.94], borderColor, 0.5);
-      this.smartText(subj, x + 3, ry + cellH * 0.45, { size: 7, bold: true, mono: true, color: labelText, maxWidth: col0W - 6 });
+      this.smartText(subj, x + 3, ry + cellH * 0.35, { size: 6, bold: true, mono: false, color: labelText, maxWidth: col0W - 8 });
 
       // Data cells
       dayLabels.forEach((dl, di) => {
