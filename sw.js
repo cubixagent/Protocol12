@@ -1,49 +1,78 @@
-// sw.js
-const CACHE_VERSION = 'v' + Date.now(); // هر بار SW تغییر کنه، version عوض میشه
-const CACHE_NAME = 'exec-engine-' + CACHE_VERSION;
+// ════════════════════════════════════════════════════════════════
+// EXECUTION ENGINE — Service Worker
+// Bump CACHE_VERSION whenever you push to GitHub to trigger update
+// ════════════════════════════════════════════════════════════════
 
-const ASSETS = [
+const CACHE_VERSION = 'v3';
+const CACHE_NAME = `execution-engine-${CACHE_VERSION}`;
+
+const PRECACHE_URLS = [
   './',
   './index.html',
+  './manifest.json',
 ];
 
-// Install: cache assets
-self.addEventListener('install', e => {
-  self.skipWaiting(); // ← کلید مهم: SW جدید فوری active میشه
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
+// ── Install: pre-cache shell files ─────────────────────────────
+self.addEventListener('install', event => {
+  // Do NOT call self.skipWaiting() here — let the page decide when to update
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE_URLS))
   );
 });
 
-// Activate: پاک کردن cache قدیمی
-self.addEventListener('activate', e => {
-  e.waitUntil(
+// ── Activate: delete old caches ────────────────────────────────
+self.addEventListener('activate', event => {
+  event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(k => k !== CACHE_NAME)
-          .map(k => caches.delete(k))
+          .filter(key => key !== CACHE_NAME)
+          .map(key => caches.delete(key))
       )
-    ).then(() => self.clients.claim()) // ← فوری کنترل همه تب‌ها رو میگیره
+    ).then(() => self.clients.claim())
   );
 });
 
-// Fetch: network-first strategy
-self.addEventListener('fetch', e => {
-  // فقط GET و همون origin
-  if (e.request.method !== 'GET') return;
+// ── Fetch: network-first for HTML, cache-first for assets ──────
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
 
-  e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        // پاسخ شبکه رو cache کن و برگردون
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-        return res;
-      })
-      .catch(() =>
-        // اگه آفلاین بود، از cache بخون
-        caches.match(e.request)
-      )
+  // Always go network-first for the main HTML file
+  // so we detect updates on every load
+  if (event.request.mode === 'navigate' || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-first for everything else (icons, manifest, etc.)
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request).then(response => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      });
+    })
   );
+});
+
+// ── Message handler: page tells SW to take over now ────────────
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    // After skipWaiting, 'controllerchange' fires in the page → page reloads
+  }
 });
