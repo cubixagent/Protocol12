@@ -5352,10 +5352,41 @@ boot();
 </script>
   <script>
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').then(reg => {
-    console.log('SW registered:', reg.scope);
-  }).catch(err => {
-    console.log('SW registration failed:', err);
+  // ثبت سرویس ورکر
+  navigator.serviceWorker.register('/sw.js').then(registration => {
+    console.log('Service Worker registered');
+    
+    // بررسی آپدیت هر ۳۰ ثانیه (۳۰۰۰۰ میلی‌ثانیه)
+    setInterval(() => {
+      registration.update();
+      console.log('Checking for updates...');
+    }, 30000); // 30 ثانیه
+    
+    // گوش دادن به رویداد آپدیت جدید
+    registration.addEventListener('updatefound', () => {
+      const newWorker = registration.installing;
+      console.log('New update found!');
+      
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          // فایل‌های جدید دانلود شدن
+          if (confirm('نسخه جدیدی منتشر شده! برای مشاهده، صفحه رو reload کنم؟')) {
+            window.location.reload();
+          }
+        }
+      });
+    });
+  }).catch(error => {
+    console.log('Service Worker registration failed:', error);
+  });
+  
+  // وقتی سرویس ورکر جدید کنترل رو گرفت، صفحه رفرش بشه
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
   });
 }
   </script>
